@@ -1,0 +1,323 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CategoryKey {
+  KNOWLEDGE
+  FITNESS
+  DISCIPLINE
+  CREATION
+  CAREER
+  CREATIVITY
+  SOCIAL
+  EXPLORATION
+  WELLBEING
+}
+
+enum Visibility {
+  PRIVATE
+  FRIENDS
+  PUBLIC
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum QuestKind {
+  PERSONAL
+  LONG_TERM
+  RECURRING
+  MILESTONE
+  PARTY
+  GUILD
+}
+
+enum ChallengeKind {
+  FITNESS
+  LEARNING
+  CREATOR
+  PARTY
+  CUSTOM
+}
+
+enum Rarity {
+  COMMON
+  RARE
+  LEGENDARY
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String?
+  name          String
+  createdAt     DateTime @default(now())
+  profile       Profile?
+  privacy       UserPrivacySettings?
+  achievements  Achievement[]
+  categoryXp    UserCategoryXP[]
+  quests        Quest[]
+  badges        UserBadge[]
+  activities    Activity[]
+  notifications Notification[]
+  friendsSent     Friendship[] @relation("FriendRequester")
+  friendsReceived Friendship[] @relation("FriendAddressee")
+  challenges    ChallengeParticipant[]
+  parties       PartyMember[]
+  guilds        GuildMember[]
+  accounts      Account[]
+  reactions     Reaction[]
+}
+
+// Auth.js adapter table
+model Account {
+  id String @id @default(cuid())
+  userId String
+  provider String
+  providerAccountId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Profile {
+  userId       String   @id
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  handle       String   @unique
+  avatarUrl    String?
+  bannerUrl    String?
+  title        String   @default("The Newcomer")
+  bio          String?
+  totalXp      Int      @default(0)
+  level        Int      @default(1)
+  momentum     Float    @default(1.0)
+  lastActiveOn DateTime?
+  featuredAchievementIds String[]
+  displayedStats CategoryKey[]
+  @@index([totalXp])
+}
+
+model UserPrivacySettings {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level Visibility @default(FRIENDS)
+  stats Visibility @default(FRIENDS)
+  achievements Visibility @default(FRIENDS)
+  quests Visibility @default(FRIENDS)
+  momentum Visibility @default(FRIENDS)
+  activity Visibility @default(FRIENDS)
+}
+
+model Category {
+  key CategoryKey @id
+  name String
+  icon String
+  userXp UserCategoryXP[]
+}
+
+model UserCategoryXP {
+  userId String
+  category CategoryKey
+  xp Int @default(0)
+  level Int @default(1)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cat Category @relation(fields: [category], references: [key])
+  @@id([userId, category])
+  @@index([category, xp])
+}
+
+model Achievement {
+  id String @id @default(cuid())
+  userId String
+  text String
+  occurredOn DateTime @default(now())
+  notes String?
+  evidenceUrl String?
+  primaryCategory CategoryKey
+  secondaryCategory CategoryKey?
+  xpAwarded Int
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evaluation AchievementEvaluation?
+  @@index([userId, createdAt])
+  @@index([userId, primaryCategory, createdAt])
+}
+
+model AchievementEvaluation {
+  id String @id @default(cuid())
+  achievementId String @unique
+  difficulty Float
+  effort Float
+  impact Float
+  rarity Float
+  timeInvestment Float
+  consistency Float @default(5)
+  llmRecommendedXp Int
+  formulaXp Int
+  repeatFactor Float
+  momentumFactor Float
+  finalXp Int
+  reason String
+  evaluator String // "mock" | "claude-sonnet-5-5" ...
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+}
+
+model Quest {
+  id String @id @default(cuid())
+  ownerId String?
+  partyId String?
+  guildId String?
+  kind QuestKind @default(PERSONAL)
+  title String
+  goal String
+  bonusXp Int @default(0)
+  completedAt DateTime?
+  aiGenerated Boolean @default(false)
+  owner User? @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  party Party? @relation(fields: [partyId], references: [id])
+  guild Guild? @relation(fields: [guildId], references: [id])
+  steps QuestStep[]
+  @@index([ownerId, completedAt])
+}
+
+model QuestStep {
+  id String @id @default(cuid())
+  questId String
+  position Int
+  title String
+  xpReward Int
+  isFinal Boolean @default(false)
+  doneAt DateTime?
+  quest Quest @relation(fields: [questId], references: [id], onDelete: Cascade)
+  @@index([questId, position])
+}
+
+model Friendship {
+  id String @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status FriendStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  requester User @relation("FriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+}
+
+model Challenge {
+  id String @id @default(cuid())
+  kind ChallengeKind
+  title String
+  category CategoryKey?
+  xpTarget Int?
+  startsAt DateTime
+  endsAt DateTime
+  rewardXp Int @default(0)
+  completedAt DateTime?
+  partyId String?
+  party Party? @relation(fields: [partyId], references: [id])
+  participants ChallengeParticipant[]
+  @@index([endsAt])
+}
+
+model ChallengeParticipant {
+  challengeId String
+  userId String
+  progressXp Int @default(0)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([challengeId, userId])
+}
+
+model Party {
+  id String @id @default(cuid())
+  name String
+  weeklyGoalXp Int @default(10000)
+  members PartyMember[]
+  quests Quest[]
+  challenges Challenge[]
+}
+model PartyMember {
+  partyId String
+  userId String
+  joinedAt DateTime @default(now())
+  party Party @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([partyId, userId])
+}
+
+model Guild {
+  id String @id @default(cuid())
+  name String @unique
+  kind String
+  totalXp Int @default(0)
+  level Int @default(1)
+  members GuildMember[]
+  quests Quest[]
+}
+model GuildMember {
+  guildId String
+  userId String
+  role String @default("MEMBER")
+  guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([guildId, userId])
+}
+
+model Badge {
+  id String @id @default(cuid())
+  slug String @unique
+  name String
+  icon String
+  description String
+  rarity Rarity @default(COMMON)
+  users UserBadge[]
+}
+model UserBadge {
+  userId String
+  badgeId String
+  unlockedAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id])
+  @@id([userId, badgeId])
+}
+
+model Activity {
+  id String @id @default(cuid())
+  userId String
+  type String // ACHIEVEMENT | LEVEL_UP | STAT_LEVEL | BADGE | QUEST_DONE
+  payload Json
+  reactions Reaction[]
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model Notification {
+  id String @id @default(cuid())
+  userId String
+  type String
+  body String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, readAt])
+}
+
+model Reaction {
+  activityId String
+  userId String
+  emoji String
+  createdAt DateTime @default(now())
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([activityId, userId, emoji])
+}
